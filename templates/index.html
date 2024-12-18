@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Fall Detection Classification</title>
+    <!-- Include Bootstrap CSS -->
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" crossorigin="anonymous">
+    <!-- Custom CSS Styles -->
+    <style>
+        /* ... existing styles ... */
+        #feedback {
+            display: none; /* Hide feedback form initially */
+        }
+        /* ... rest of your styles ... */
+    </style>
+</head>
+<body>
+    <div class="main container">
+        <section class="iupload">
+            <h3 class="text-center py-4">Fall Detection Classification</h3>
+            <div class="row">
+                <div class="img-part col-md-6">
+                    <!-- Image upload section -->
+                    <div class="image-part">
+                        <img src="" id="photo" style="display: none;">
+                        <canvas style="display:none;" id="canvas"></canvas>
+                    </div>
+                    <div class="btn-part">
+                        <form id="upload-data" class="">
+                            <div class="input-group mt-3 row">
+                                <button type="button" class="btn btn-primary col-md-5 col-xs-5 ml-3 mr-4" id="uload">Upload</button>
+                                <button id="send" type="button" class="btn btn-success col-md-5 col-xs-5">Predict</button>
+                            </div>
+                            <input type="hidden" class="form-control mr-2" id="url" value="/predict"/>
+                            <input name="upload" type="file" id="fileinput" style="display: none;"/><br/>
+                        </form>
+                    </div>
+                </div>
+                <div class="col-md-6 col-xs-12 right-part">
+                    <h5 class="mb-2 text-center">Prediction Results</h5>
+                    <div class="row">
+                        <!-- Adjusted columns to ensure proper layout -->
+                        <div class="res-part col-md-12 col-xs-12">
+                            <div class="jsonRes"></div>
+                            <!-- Feedback form -->
+                            <div id="feedback">
+                                <p>Was the prediction correct?</p>
+                                <form id="feedbackForm">
+                                    <label><input type="radio" name="feedback" value="yes" required> Yes</label>
+                                    <label><input type="radio" name="feedback" value="no"> No</label>
+                                    <div id="correctLabelInput" style="display:none; margin-top: 10px;">
+                                        <label for="correct_label">What is the correct label? (0 for No Fall, 1 for Fall)</label>
+                                        <input type="number" name="correct_label" id="correct_label" min="0" max="1">
+                                    </div>
+                                    <!-- Hidden inputs to store data -->
+                                    <input type="hidden" id="file_path">
+                                    <input type="hidden" id="predictedClass">
+                                    <button type="button" id="submitFeedback" class="btn btn-primary mt-2">Submit Feedback</button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Loading spinner -->
+    <div id="loading" style="display: none;">
+        <div class="loader"></div>
+    </div>
+
+    <!-- Include JavaScript dependencies -->
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <!-- Custom script -->
+    <script>
+        var base_data = "";
+
+        function sendRequest(base64Data) {
+            if (base64Data !== "") {
+                var url = $("#url").val();
+                $("#loading").show();
+                $.ajax({
+                    url: url,
+                    type: "POST",
+                    contentType: 'application/json',
+                    data: JSON.stringify({ image: base_data }),
+                    success: function(res) {
+                        $(".res-part .jsonRes").html("<pre>" + JSON.stringify(res.result, null, 2) + "</pre>");
+                        $("#loading").hide();
+                        $('#feedback').show(); // Show feedback section after prediction
+                        $('#file_path').val(base_data); // Store base64 image data
+                        $('#predictedClass').val(res.result.predicted_class);
+                    },
+                    error: function(err) {
+                        $("#loading").hide();
+                        alert("Error during prediction: " + err.responseText);
+                    }
+                });
+            } else {
+                alert("Please upload an image first.");
+            }
+        }
+
+        $(document).ready(function() {
+            $('#loading').hide();
+
+            $('#send').click(function() {
+                sendRequest(base_data);
+            });
+
+            $('#uload').click(function() {
+                $('#fileinput').trigger('click');
+            });
+
+            $("#fileinput").change(function() {
+                if (this.files && this.files[0]) {
+                    var reader = new FileReader();
+                    reader.onload = function(e) {
+                        var img = new Image();
+                        img.onload = function() {
+                            var canvas = document.getElementById('canvas');
+                            var ctx = canvas.getContext('2d');
+                            canvas.width = img.width;
+                            canvas.height = img.height;
+                            ctx.drawImage(img, 0, 0);
+                            base_data = canvas.toDataURL('image/jpeg').replace(/^data:image\/(png|jpeg);base64,/, '');
+                            $('#photo').attr('src', e.target.result).show();
+                        };
+                        img.src = e.target.result;
+                    };
+                    reader.readAsDataURL(this.files[0]);
+                }
+            });
+
+            // Show or hide correct label input based on feedback
+            $(document).on('change', "input[name='feedback']", function() {
+                if ($(this).val() == "no") {
+                    $("#correctLabelInput").show();
+                } else {
+                    $("#correctLabelInput").hide();
+                }
+            });
+
+            // Submit feedback
+            $("#submitFeedback").click(function() {
+                var feedback = $("input[name='feedback']:checked").val();
+                var correct_label = $("#correct_label").val();
+                var predicted_class = $("#predictedClass").val();
+                var file_path = $("#file_path").val(); // Base64 image data
+
+                if (feedback == "no" && (correct_label === "" || correct_label === undefined)) {
+                    alert("Please provide the correct label.");
+                    return;
+                }
+
+                $.ajax({
+                    url: "/feedback",
+                    type: "POST",
+                    data: {
+                        "file_path": file_path,
+                        "predicted_class": predicted_class,
+                        "feedback": feedback,
+                        "correct_label": correct_label
+                    },
+                    success: function(res) {
+                        alert(res.message);
+                        $('#feedback').hide(); // Hide the feedback section after submission
+                    },
+                    error: function(err) {
+                        alert("Error submitting feedback: " + err.responseText);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
